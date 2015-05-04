@@ -1,0 +1,66 @@
+---
+title: "drugs"
+author: "Jameson Quinn"
+date: "April 28, 2015"
+output: html_document
+---
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r}
+library(data.table)
+library(ggplot2)
+library(boot)
+library(elasticnet)
+library(plyr)
+
+load ("expr.RDAT")
+dat = Expr$dat
+dat2 = aaply(dat,2,function(v){v[is.na(v)]=mean(v,na.rm=T);return(v)})
+ppp = spca(dm,10,1:10)
+dm = dat2[1:100,1:1000]
+
+start = Sys.time()
+pp = nsprcomp(dm, 10, k=rep(25,10))
+print(Sys.time()-start)
+
+nmeans = 5
+ncol = 1000
+nsigcols = 100
+sigoff = 45
+sigsize = .4
+sigdropoff = 1.3
+sigsd = .4
+noisesd = 1
+means = matrix(0,nmeans,ncol)
+for (i in 1:nmeans){
+  means[i,(i*sigoff):(i*sigoff+nsigcols-1)]=rnorm(nsigcols,0,sigsize)
+}
+
+`%+=%` = function(e1,e2) eval.parent(substitute(e1 <- e1 + e2))
+nsimdat=100
+simdat = matrix(NA,nsimdat,ncol)
+for (i in 1:nsimdat) {
+  dat = rnorm(ncol,0,noisesd)
+  whichmean = sample(1:nmeans,1,prob=(sigdropoff ^ (-(1:nmeans))))
+  dat[(whichmean*sigoff):(whichmean*sigoff+nsigcols-1)] %+=% rnorm(nsigcols,0,sigsd)
+  dat %+=% means[whichmean,]
+  simdat[i,]=dat
+}
+
+pp = nsprcomp(simdat, 10, k=rep(25,10))
+
+for (i in 1:nmeans){
+    cat(aaply(pp$rotation, 2, function(x) {sum(x[(i*sigoff):(i*sigoff+nsigcols-1)] != 0)}),"\n")
+}
+```
+
+You can also embed plots, for example:
+
+```{r, echo=FALSE}
+plot(cars)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
