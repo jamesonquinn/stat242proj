@@ -5,10 +5,6 @@ date: "April 28, 2015"
 output: html_document
 ---
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
-
 ```{r}
 library(data.table)
 library(ggplot2)
@@ -56,11 +52,3 @@ for (i in 1:nmeans){
     cat(aaply(pp$rotation, 2, function(x) {sum(x[(i*sigoff):(i*sigoff+nsigcols-1)] != 0)}),"\n")
 }
 ```
-
-You can also embed plots, for example:
-
-```{r, echo=FALSE}
-plot(cars)
-```
-
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
