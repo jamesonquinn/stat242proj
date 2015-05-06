@@ -11,10 +11,98 @@ HIHIHIHIH
 library(data.table)
 library(ggplot2)
 library(boot)
-library(elasticnet)
+library(nsprcomp)
 library(plyr)
+library(reshape2)
 
-load ("expr.RDAT")
+load ("gene_to_geneset_matrix.Rdat")
+load ("small_CTD1.Rdat")
+load ("small_scaled_micro_array_2.Rdat")
+
+
+standardize = function(v) {(v-mean(v))/sd(v)}
+drugs = data.table(t(aaply(small_CTD1[!is.na(small_scaled_micro_array_2[,1]),],2,standardize)))
+genesets = data.table(gene_to_geneset_matrix)
+rna = data.table(t(aaply(small_scaled_micro_array_2[!is.na(small_scaled_micro_array_2[,1]),],2,standardize)))
+
+rna2 = data.table(rna)
+lastPart = Vectorize(function(s){tail(strsplit(s,split="_")[[1]],1)})
+rna2[,type:=as.factor(lastPart(rownames(small_CTD1[!is.na(small_scaled_micro_array_2[,1]),])))]
+ndim = 4
+
+if (F) {
+  for (alpha in 2+((0:4)*0.25)) {
+    alldat = cbind(rna,alpha*drugs)
+    pca = nsprcomp(alldat,ndim,k=rep(200,ndim))
+    loads = pca$rotation
+    cat(alpha, aaply(loads[1:dim(rna)[2],],2,function(v){sum(v != 0)}),"\n")
+  
+  }
+}
+
+alpha = 3
+alldat = cbind(rna,alpha*drugs)
+cols = c(names(alldat))
+alldat[,cancerType:=as.factor(lastPart(rownames(small_CTD1[!is.na(small_scaled_micro_array_2[,1]),])))]
+admeans = data.table(alldat)
+admeans[,(cols):=lapply(.SD,mean),.SDcols=cols, by=cancerType]
+adwithin = as.matrix(alldat[,-(length(cols) + 1),with=FALSE]) - as.matrix(admeans[,-(length(cols) + 1),with=FALSE])
+
+
+pca = nsprcomp(adwithin,ndim,k=rep(200,ndim))
+loads = pca$rotation
+cat(alpha, aaply(loads[1:dim(rna)[2],],2,function(v){sum(v != 0)}),"\n")
+
+allsets = cbind(genesets,matrix(0,dim(genesets)[1],dim(drugs)[2]))
+allsets = as.matrix(rbind(allsets,cbind(matrix(0,dim(drugs)[2],dim(genesets)[2]),diag(dim(drugs)[2]))))
+
+numLoads = function(dat) {
+  d = ifelse(dat != 0, 1,0)
+  
+  aaply(seq(dim(allsets)[1]),1,function(i){colSums(d * allsets[i,] / sum(allsets[i,]))})
+}
+
+
+nl = numLoads(loads)
+overlaps = nl %*% t(nl)
+
+overlapss = melt(overlaps)
+setnames(overlapss,c("i","j","value"))
+ggplot(overlapss, aes(i,j,fill=value)) + geom_raster()
+
+
+getOverlap = function(dat,...) {
+  
+  pca = nsprcomp(adwithin,ndim,k=rep(200,ndim))
+  loads = pca$rotation
+  nl = numLoads(loads)
+  overlaps = nl %*% t(nl)
+  return(overlaps)
+}
+
+smallboot = boot(adwithin, getOverlap, R=3)
+overlapMeans = matrix(colMeans(smallboot$t),dim(allsets)[1],dim(allsets)[1])
+
+d_inds = seq(dim(genesets)[1]+1,dim(allsets)[1])
+g_inds = seq(1,dim(genesets)[1])
+rescaler = rbind(cbind(matrix(mean(overlapMeans[g_inds,g_inds]),
+                              dim(genesets)[1],
+                              dim(genesets)[1]), 
+                       matrix(mean(overlapMeans[g_inds,d_inds]),
+                              dim(genesets)[1],
+                              dim(drugs)[2])),
+                 cbind(matrix(mean(overlapMeans[d_inds,g_inds]),
+                              dim(drugs)[2],
+                              dim(genesets)[1]), 
+                       matrix(mean(overlapMeans[d_inds,d_inds]),
+                              dim(drugs)[2],
+                              dim(drugs)[2])))
+
+rescaled = overlapMeans / rescaler
+
+
+
+
 dat = Expr$dat
 dat2 = aaply(dat,2,function(v){v[is.na(v)]=mean(v,na.rm=T);return(v)})
 ppp = spca(dm,10,1:10)
