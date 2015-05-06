@@ -13,6 +13,7 @@ library(ggplot2)
 library(boot)
 library(nsprcomp)
 library(plyr)
+library(pheatmap)
 library(reshape2)
 
 load ("gene_to_geneset_matrix.Rdat")
@@ -70,35 +71,74 @@ overlapss = melt(overlaps)
 setnames(overlapss,c("i","j","value"))
 ggplot(overlapss, aes(i,j,fill=value)) + geom_raster()
 
-
+minNumLoads = 100
+maxNumLoads = 200
 getOverlap = function(dat,...) {
   
-  pca = nsprcomp(adwithin,ndim,k=rep(200,ndim))
+  pca = nsprcomp(adwithin,ndim,k=rep(sample(minNumLoads:maxNumLoads,1),ndim))
   loads = pca$rotation
   nl = numLoads(loads)
   overlaps = nl %*% t(nl)
+  print(rbinom(1,1,.5))
   return(overlaps)
 }
 
-smallboot = boot(adwithin, getOverlap, R=3)
-overlapMeans = matrix(colMeans(smallboot$t),dim(allsets)[1],dim(allsets)[1])
+r = 100
+aboot = boot(adwithin, getOverlap, R=r)
+overlapMeans = matrix(colMeans(aboot$t),dim(allsets)[1],dim(allsets)[1])
 
 d_inds = seq(dim(genesets)[1]+1,dim(allsets)[1])
 g_inds = seq(1,dim(genesets)[1])
-rescaler = rbind(cbind(matrix(mean(overlapMeans[g_inds,g_inds]),
+rescalerMeans = rbind(cbind(matrix(min(overlapMeans[g_inds,g_inds]),
                               dim(genesets)[1],
                               dim(genesets)[1]), 
-                       matrix(mean(overlapMeans[g_inds,d_inds]),
+                       matrix(min(overlapMeans[g_inds,d_inds]),
                               dim(genesets)[1],
                               dim(drugs)[2])),
-                 cbind(matrix(mean(overlapMeans[d_inds,g_inds]),
+                 cbind(matrix(min(overlapMeans[d_inds,g_inds]),
                               dim(drugs)[2],
                               dim(genesets)[1]), 
-                       matrix(mean(overlapMeans[d_inds,d_inds]),
+                       matrix(min(overlapMeans[d_inds,d_inds]),
+                              dim(drugs)[2],
+                              dim(drugs)[2])))
+rrange = function(v) {max(v)-min(v)}
+rescalerVar = rbind(cbind(matrix(rrange(overlapMeans[g_inds,g_inds]),
+                              dim(genesets)[1],
+                              dim(genesets)[1]), 
+                       matrix(rrange(overlapMeans[g_inds,d_inds]),
+                              dim(genesets)[1],
+                              dim(drugs)[2])),
+                 cbind(matrix(rrange(overlapMeans[d_inds,g_inds]),
+                              dim(drugs)[2],
+                              dim(genesets)[1]), 
+                       matrix(rrange(overlapMeans[d_inds,d_inds]),
                               dim(drugs)[2],
                               dim(drugs)[2])))
 
-rescaled = overlapMeans / rescaler
+rescaled = (overlapMeans - rescalerMeans)/rescalerVar
+
+
+dpermute = d_inds[order(rowMeans(rescaled[d_inds,]))]
+gpermute = g_inds[order(rowMeans(rescaled[g_inds,]))]
+fullpermute = c(gpermute, dpermute)
+sortedOverlaps = rescaled[fullpermute,fullpermute]
+
+ddist = dist(rescaled[d_inds,], method="euclidean")
+dclust = hclust(ddist, method = "average")
+gdist = dist(rescaled[g_inds,], method="euclidean")
+gclust = hclust(gdist, method = "average")
+allclust = c(gclust$order,dclust$order)
+
+pheatmap(rescaled[allclust,allclust])
+
+overlapss = melt(sortedOverlaps)
+setnames(overlapss,c("i","j","value"))
+ggplot(overlapss, aes(i,j,fill=value)) + geom_raster()
+
+saveRDS(overlapMeans, "overlapMeans.rds")
+
+
+
 
 
 
