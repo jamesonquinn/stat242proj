@@ -20,17 +20,15 @@ load ("gene_to_geneset_matrix.Rdat")
 load ("small_CTD1.Rdat")
 load ("small_scaled_micro_array_2.Rdat")
 
-
+#make a function to standardize a vector, then apply it to all the columns of drugs and rna
 standardize = function(v) {(v-mean(v))/sd(v)}
 drugs = data.table(t(aaply(small_CTD1[!is.na(small_scaled_micro_array_2[,1]),],2,standardize)))
 genesets = data.table(gene_to_geneset_matrix)
 rna = data.table(t(aaply(small_scaled_micro_array_2[!is.na(small_scaled_micro_array_2[,1]),],2,standardize)))
 
-rna2 = data.table(rna)
-lastPart = Vectorize(function(s){tail(strsplit(s,split="_")[[1]],1)})
-rna2[,type:=as.factor(lastPart(rownames(small_CTD1[!is.na(small_scaled_micro_array_2[,1]),])))]
-ndim = 4
+ndim = 4 # how many PCA dimensions to look at
 
+#do some exploration of alpha factor (upweighting drug variances so that they aren't swamped by the more-numerous RNA data)... commented out
 if (F) {
   for (alpha in 2+((0:4)*0.25)) {
     alldat = cbind(rna,alpha*drugs)
@@ -41,38 +39,52 @@ if (F) {
   }
 }
 
+#OK, we've picked an alpha
 alpha = 3
+
+#combined data matrix
 alldat = cbind(rna,alpha*drugs)
-cols = c(names(alldat))
+cols = c(names(alldat)) #the names of genes and drugs, for later use
+
+#make a function to make a column of "cancer type" using the last word of the row names of rna
+lastPart = Vectorize(function(s){tail(strsplit(s,split="_")[[1]],1)})
 alldat[,cancerType:=as.factor(lastPart(rownames(small_CTD1[!is.na(small_scaled_micro_array_2[,1]),])))]
+
+#copy the data matrix so we can get means, as a way towards looking at within- vs. between-group variance (group=cancer type)
 admeans = data.table(alldat)
-admeans[,(cols):=lapply(.SD,mean),.SDcols=cols, by=cancerType]
-adwithin = as.matrix(alldat[,-(length(cols) + 1),with=FALSE]) - as.matrix(admeans[,-(length(cols) + 1),with=FALSE])
+admeans[,(cols):=lapply(.SD,mean),.SDcols=cols, by=cancerType] #now admeans is the all-data-means
+adwithin = as.matrix(alldat[,-(length(cols) + 1),with=FALSE]) - as.matrix(admeans[,-(length(cols) + 1),with=FALSE]) #adwithin has within-group variability for all data
 
 
-pca = nsprcomp(adwithin,ndim,k=rep(200,ndim))
-loads = pca$rotation
-cat(alpha, aaply(loads[1:dim(rna)[2],],2,function(v){sum(v != 0)}),"\n")
+pca = nsprcomp(adwithin,ndim,k=rep(200,ndim)) #let's do one to check
+loads = pca$rotation #these are the sparse PCA loading factors
+cat(alpha, aaply(loads[1:dim(rna)[2],],2,function(v){sum(v != 0)}),"\n") #how many of the 200 loading factors relate to genes, as opposed to drugs, for each dimension?
 
+#Now, put drugs into the geneset matrix. Each drug is a set of 1.
 allsets = cbind(genesets,matrix(0,dim(genesets)[1],dim(drugs)[2]))
 allsets = as.matrix(rbind(allsets,cbind(matrix(0,dim(drugs)[2],dim(genesets)[2]),diag(dim(drugs)[2]))))
 
+#a function to find what portion of the possible loadings a dimension has in each geneset or drug. Returns a matrix (genes,drugs) x (dimensions). That matrix can be self-multiplied to get overlap factors.
 numLoads = function(dat) {
   d = ifelse(dat != 0, 1,0)
   
   aaply(seq(dim(allsets)[1]),1,function(i){colSums(d * allsets[i,] / sum(allsets[i,]))})
 }
 
-
+#now apply the function and get the overlaps
 nl = numLoads(loads)
 overlaps = nl %*% t(nl)
 
+#melt it so we can ggplot it.
 overlapss = melt(overlaps)
 setnames(overlapss,c("i","j","value"))
 ggplot(overlapss, aes(i,j,fill=value)) + geom_raster()
 
-minNumLoads = 100
-maxNumLoads = 200
+#OK, now it's time to bootstrap. Set parameters.
+minNumLoads = 100 #each boostrap has a random number of loadings per dimension, uniformly...
+maxNumLoads = 200 #...between the above and this.
+
+#create a function to pass to boot. Note that boot flattens the "overlap" matrix into vectors, so it will fit in rows of the "t" matrix it returns
 getOverlap = function(dat,...) {
   
   pca = nsprcomp(adwithin,ndim,k=rep(sample(minNumLoads:maxNumLoads,1),ndim))
@@ -83,12 +95,14 @@ getOverlap = function(dat,...) {
   return(overlaps)
 }
 
-r = 100
-aboot = boot(adwithin, getOverlap, R=r)
-overlapMeans = matrix(colMeans(aboot$t),dim(allsets)[1],dim(allsets)[1])
+r = 100 #how many bootstrap samples. They take a few seconds each.
+aboot = boot(adwithin, getOverlap, R=r) #Do the bootstrap. Get some coffee.
+overlapMeans = matrix(colMeans(aboot$t),dim(allsets)[1],dim(allsets)[1]) #now average the results across bootstrap samples, and put them back from vector into matrix form.
 
-d_inds = seq(dim(genesets)[1]+1,dim(allsets)[1])
-g_inds = seq(1,dim(genesets)[1])
+d_inds = seq(dim(genesets)[1]+1,dim(allsets)[1]) #a list of all indices of drugs
+g_inds = seq(1,dim(genesets)[1]) #a list of all indices of genes
+
+#Make two blockwise-constant matrices, the same size as overlaps, so we can normalize the values, so that graphing things will have visible stuff happening in all 4 quadrants.
 rescalerMeans = rbind(cbind(matrix(min(overlapMeans[g_inds,g_inds]),
                               dim(genesets)[1],
                               dim(genesets)[1]), 
@@ -115,33 +129,39 @@ rescalerVar = rbind(cbind(matrix(rrange(overlapMeans[g_inds,g_inds]),
                               dim(drugs)[2],
                               dim(drugs)[2])))
 
+#now do the normalization
 rescaled = (overlapMeans - rescalerMeans)/rescalerVar
 
-
+#find an order so the graph looks pretty. First, just sort by row means, within genes and within drugs
 dpermute = d_inds[order(rowMeans(rescaled[d_inds,]))]
 gpermute = g_inds[order(rowMeans(rescaled[g_inds,]))]
 fullpermute = c(gpermute, dpermute)
 sortedOverlaps = rescaled[fullpermute,fullpermute]
 
+#But no, we can do better; hierarchical clusters. A bit slow.
 ddist = dist(rescaled[d_inds,], method="euclidean")
 dclust = hclust(ddist, method = "average")
 gdist = dist(rescaled[g_inds,], method="euclidean")
 gclust = hclust(gdist, method = "average")
 allclust = c(gclust$order,dclust$order)
+sortedOverlaps = rescaled[allclust,allclust]
 
+#graph using pheatmap. SLOW!
 pheatmap(rescaled[allclust,allclust])
 
+#graph using ggplot.
 overlapss = melt(sortedOverlaps)
 setnames(overlapss,c("i","j","value"))
 ggplot(overlapss, aes(i,j,fill=value)) + geom_raster()
 
+#save our data.
 saveRDS(overlapMeans, "overlapMeans.rds")
 
 
 
 
 
-
+#The stuff below is just the simulated data code. I don't think we need it, it was just to explore the packages and see if what we were doing was reasonable. It helped me decide to focus on the first 4 PCA dimensions.
 
 dat = Expr$dat
 dat2 = aaply(dat,2,function(v){v[is.na(v)]=mean(v,na.rm=T);return(v)})
