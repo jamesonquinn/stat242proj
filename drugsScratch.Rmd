@@ -81,8 +81,8 @@ setnames(overlapss,c("i","j","value"))
 ggplot(overlapss, aes(i,j,fill=value)) + geom_raster()
 
 #OK, now it's time to bootstrap. Set parameters.
-minNumLoads = 100 #each boostrap has a random number of loadings per dimension, uniformly...
-maxNumLoads = 200 #...between the above and this.
+minNumLoads = 180 #each boostrap has a random number of loadings per dimension, uniformly...
+maxNumLoads = 220 #...between the above and this.
 
 #create a function to pass to boot. Note that boot flattens the "overlap" matrix into vectors, so it will fit in rows of the "t" matrix it returns
 getOverlap = function(dat,...) {
@@ -101,6 +101,15 @@ overlapMeans = matrix(colMeans(aboot$t),dim(allsets)[1],dim(allsets)[1]) #now av
 
 d_inds = seq(dim(genesets)[1]+1,dim(allsets)[1]) #a list of all indices of drugs
 g_inds = seq(1,dim(genesets)[1]) #a list of all indices of genes
+
+
+#get the overlap of the genesets, so we can cancel that out of the co-occurring factors
+baseOverlap = cov(t(genesets))
+length(baseOverlap)
+overlapLm = lm(c(overlapMeans[g_inds,g_inds]) ~ c(baseOverlap))
+unexplainedOverlap = matrix(overlapLm$resid,length(g_inds),length(g_inds))
+rawOverlapMeans = overlapMeans #unexplainedOverlap is missing drugs, so we're going to put that info into overlapMeans. But first, make a backup copy.
+overlapMeans[g_inds,g_inds] = unexplainedOverlap
 
 #Make two blockwise-constant matrices, the same size as overlaps, so we can normalize the values, so that graphing things will have visible stuff happening in all 4 quadrants.
 rescalerMeans = rbind(cbind(matrix(min(overlapMeans[g_inds,g_inds]),
@@ -147,7 +156,7 @@ allclust = c(gclust$order,dclust$order)
 sortedOverlaps = rescaled[allclust,allclust]
 
 #graph using pheatmap. SLOW!
-pheatmap(rescaled[allclust,allclust])
+#pheatmap(rescaled[allclust,allclust])
 
 #graph using ggplot.
 overlapss = melt(sortedOverlaps)
@@ -156,6 +165,18 @@ ggplot(overlapss, aes(i,j,fill=value)) + geom_raster()
 
 #save our data.
 saveRDS(overlapMeans, "overlapMeans.rds")
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
