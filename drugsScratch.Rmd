@@ -14,6 +14,7 @@ library(boot)
 library(nsprcomp)
 library(plyr)
 library(pheatmap)
+library(matrixStats)
 library(reshape2)
 
 load ("gene_to_geneset_matrix.Rdat")
@@ -99,17 +100,30 @@ r = 100 #how many bootstrap samples. They take a few seconds each.
 aboot = boot(adwithin, getOverlap, R=r) #Do the bootstrap. Get some coffee.
 overlapMeans = matrix(colMeans(aboot$t),dim(allsets)[1],dim(allsets)[1]) #now average the results across bootstrap samples, and put them back from vector into matrix form.
 
+
+
 d_inds = seq(dim(genesets)[1]+1,dim(allsets)[1]) #a list of all indices of drugs
 g_inds = seq(1,dim(genesets)[1]) #a list of all indices of genes
 
 
+#find how many loads on average are in the drugs versus the genes
+meanNumDrugLoads = sum(rawOverlapMeans[d_inds,d_inds] * diag(length(d_inds))) / 4
+meanNumGeneLoads = mean(c(minNumLoads,maxNumLoads))-meanNumDrugLoads
+
+
 #get the overlap of the genesets, so we can cancel that out of the co-occurring factors
-baseOverlap = cov(t(genesets))
-length(baseOverlap)
-overlapLm = lm(c(overlapMeans[g_inds,g_inds]) ~ c(baseOverlap))
+allsetsM = as.matrix(allsets)
+baseSameLoadOverlapScales = (allsetsM %*% t(allsetsM))
+numInSet = rowSums(allsets)
+baseDiffLoadOverlapScales = (numInSet %*% t(numInSet))
+geneoverlapLm = lm(c(overlapMeans[g_inds,g_inds]) ~ c(baseSameLoadOverlapScales) + c(baseDiffLoadOverlapScales))
 unexplainedOverlap = matrix(overlapLm$resid,length(g_inds),length(g_inds))
 rawOverlapMeans = overlapMeans #unexplainedOverlap is missing drugs, so we're going to put that info into overlapMeans. But first, make a backup copy.
 overlapMeans[g_inds,g_inds] = unexplainedOverlap
+
+#look at effect sizes... but using a null of 0, which is not quite right.
+overlapEffects = matrix(colMeans(aboot$t) / sqrt(colVars(aboot$t) + 1e-10),dim(allsets)[1],dim(allsets)[1])
+overlapEffects[overlapEffects > 10] = 12
 
 #Make two blockwise-constant matrices, the same size as overlaps, so we can normalize the values, so that graphing things will have visible stuff happening in all 4 quadrants.
 rescalerMeans = rbind(cbind(matrix(min(overlapMeans[g_inds,g_inds]),
@@ -124,7 +138,7 @@ rescalerMeans = rbind(cbind(matrix(min(overlapMeans[g_inds,g_inds]),
                        matrix(min(overlapMeans[d_inds,d_inds]),
                               dim(drugs)[2],
                               dim(drugs)[2])))
-rrange = function(v) {max(v)-min(v)}
+rrange = function(v) {mean(v)-min(v)}
 rescalerVar = rbind(cbind(matrix(rrange(overlapMeans[g_inds,g_inds]),
                               dim(genesets)[1],
                               dim(genesets)[1]), 
@@ -159,7 +173,7 @@ sortedOverlaps = rescaled[allclust,allclust]
 #pheatmap(rescaled[allclust,allclust])
 
 #graph using ggplot.
-overlapss = melt(sortedOverlaps)
+overlapss = melt(sortedOverlaps ^ 0.2)
 setnames(overlapss,c("i","j","value"))
 ggplot(overlapss, aes(i,j,fill=value)) + geom_raster()
 
