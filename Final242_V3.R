@@ -69,7 +69,7 @@ wY2.norm <- scale(wY2)*alpha
 wdata <- cbind(wX2.norm, wY2.norm)
 
 k <- 4
-para <- rep(1800,k)
+para <- c(1250,800,800,790)
 sp <- arrayspc(wdata, K=k, para,
                use.corr=FALSE, max.iter=100,trace=FALSE,eps=1e-3)
 output <- order(abs(sp$loadings[,1]),decreasing = TRUE)[1:100]
