@@ -69,10 +69,18 @@ wY2.norm <- scale(wY2)*alpha
 wdata <- cbind(wX2.norm, wY2.norm)
 
 k <- 4
-para <- c(1250,800,800,790)
-sp <- arrayspc(wdata, K=k, para,
-               use.corr=FALSE, max.iter=100,trace=FALSE,eps=1e-3)
+for (first in c(1400,1600,1800)) {
+  for (restar in c(500,400,300)) {
+    
+    para <- c(first,rep(first,k-1)-restar)
+    cat(para, "\n")
+    print(arrayspc(wdata, K=k, para,
+                   use.corr=FALSE, max.iter=100,trace=FALSE,eps=1e-3))
+  }
+}
 output <- order(abs(sp$loadings[,1]),decreasing = TRUE)[1:100]
+
+
 
 R <- 100
 

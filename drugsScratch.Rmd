@@ -228,15 +228,15 @@ if (ImUsingOverlaps) {
   geneoverlapLm = lm(c(observedSetCors[g_inds,g_inds]) ~ c(baseAllSetsCor[g_inds,g_inds]))
   unexplainedGeneOverlap = matrix(geneoverlapLm$resid,length(g_inds),length(g_inds))
   observedSetCors[g_inds,g_inds] = unexplainedGeneOverlap
-  #drug-drug
-  drugoverlapLm = lm(c(observedSetCors[d_inds,d_inds]) ~ c(baseAllSetsCor[d_inds,d_inds]))
-  unexplainedDrugOverlap = matrix(drugoverlapLm$resid,length(d_inds),length(d_inds))
-  observedSetCors[d_inds,d_inds] = unexplainedDrugOverlap
-  #drug-gene
-  crossoverlapLm = lm(c(observedSetCors[d_inds,g_inds]) ~ c(baseAllSetsCor[d_inds,g_inds]))
-  unexplainedDrugOverlap = matrix(crossoverlapLm$resid,length(d_inds),length(g_inds))
-  observedSetCors[d_inds,g_inds] = unexplainedDrugOverlap
-  observedSetCors[g_inds,d_inds] = t(unexplainedDrugOverlap)
+#   #drug-drug
+#   drugoverlapLm = lm(c(observedSetCors[d_inds,d_inds]) ~ c(baseAllSetsCor[d_inds,d_inds]))
+#   unexplainedDrugOverlap = matrix(drugoverlapLm$resid,length(d_inds),length(d_inds))
+#   observedSetCors[d_inds,d_inds] = unexplainedDrugOverlap
+#   #drug-gene
+#   crossoverlapLm = lm(c(observedSetCors[d_inds,g_inds]) ~ c(baseAllSetsCor[d_inds,g_inds]))
+#   unexplainedDrugOverlap = matrix(crossoverlapLm$resid,length(d_inds),length(g_inds))
+#   observedSetCors[d_inds,g_inds] = unexplainedDrugOverlap
+#   observedSetCors[g_inds,d_inds] = t(unexplainedDrugOverlap)
   
   
   #   
@@ -270,13 +270,8 @@ if (ImUsingOverlaps) {
   # #now do the normalization
   # rescaled = (overlapMeans - rescalerMeans)/rescalerVar
   
-  #find an order so the graph looks pretty. First, just sort by row means, within genes and within drugs
-  dpermute = d_inds[order(observedSetCors(rescaled[d_inds,]))]
-  gpermute = g_inds[order(observedSetCors(rescaled[g_inds,]))]
-  fullpermute = c(gpermute, dpermute)
-  sortedOverlaps = rescaled[fullpermute,fullpermute]
   
-  #But no, we can do better; hierarchical clusters. A bit slow.
+  #hierarchical clusters. A bit slow.
   ddist = dist(observedSetCors[d_inds,], method="euclidean")
   dclust = hclust(ddist, method = "average")
   gdist = dist(observedSetCors[g_inds,], method="euclidean")
@@ -288,11 +283,16 @@ if (ImUsingOverlaps) {
   #pheatmap(rescaled[allclust,allclust])
   
   #graph using ggplot.
-  corss = melt(sortedCors ^ 0.2)
-  setnames(corss,c("i","j","value"))
-  ggplot(corss, aes(i,j,fill=value)) + geom_raster()
+#   corss = melt(sortedCors ^ 0.2)
+#   setnames(corss,c("i","j","value"))
+#   ggplot(corss, aes(i,j,fill=value)) + geom_raster()
 
-
+  colors=seq(-0.4,1,length=300)
+  my_palette <- colorRampPalette(c("blue","#66ccff","white","#ff9982","red"))(n = 299)
+  #my_palette <- colorRampPalette(c("blue","white","red"))(n = 299)
+  heatmap.2(sortedCors,breaks=colors,
+            col=my_palette, scale="none",key=TRUE, symkey=FALSE, density.info="none", trace="none",
+            cexCol=0.12,cexRow=0.18)
   
   
   
