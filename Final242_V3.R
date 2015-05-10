@@ -68,14 +68,20 @@ wX2.norm <- scale(wX2)
 wY2.norm <- scale(wY2)*alpha
 wdata <- cbind(wX2.norm, wY2.norm)
 
-k <- 4
-for (first in c(1400,1600,1800)) {
-  for (restar in c(500,400,300)) {
+k <- 3
+library(LDRTools)
+for (first in c(1800)) {
+  for (restar in c(550,500,650)) {
     
-    para <- c(first,rep(first,k-1)-restar)
+    para <- c(first,first-restar, first-restar+50)
     cat(para, "\n")
-    print(arrayspc(wdata, K=k, para,
-                   use.corr=FALSE, max.iter=100,trace=FALSE,eps=1e-3))
+    a = arrayspc(wdata, K=1, para=first,
+                   use.corr=FALSE, max.iter=100,trace=FALSE,eps=1e-3)
+    print(a)
+    p = B2P(a$loadings)
+    unp = diag(dim(p)[1]) - p
+    wdata %*%
+    a$loadings
   }
 }
 output <- order(abs(sp$loadings[,1]),decreasing = TRUE)[1:100]

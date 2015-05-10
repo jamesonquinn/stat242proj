@@ -18,6 +18,9 @@ library(matrixStats)
 library(reshape2)
 library(gplots)
 
+library(LDRTools)
+library(elasticnet)
+
 load ("gene_to_geneset_matrix.Rdat")
 load ("small_CTD1.Rdat")
 load ("small_scaled_micro_array_2.Rdat")
@@ -59,7 +62,7 @@ if (F) {
 }
 
 #OK, we've picked an alpha
-alpha = 1.6
+alpha = 2
 
 #combined data matrix
 alldat = cbind(rna,alpha*drugs)
@@ -92,6 +95,7 @@ nl = numLoads(loads)
 overlaps = nl %*% t(nl)
 
 #melt it so we can ggplot it.
+
 overlapss = melt(overlaps)
 setnames(overlapss,c("i","j","value"))
 ggplot(overlapss, aes(i,j,fill=value)) + geom_raster()
@@ -102,48 +106,43 @@ maxNumLoads = 550 #...between the above and this.
 
 
 
-para <- c(1250,800,800,800)
-#create a function to pass to boot. Note that boot flattens the "overlap" matrix into vectors, so it will fit in rows of the "t" matrix it returns
-getOverlap = function(dat,indices,...) {
-  pca = arrayspc(dat[indices,], K=ndim, para,
-               use.corr=FALSE, max.iter=100,trace=FALSE,eps=1e-3)
-  #pca = nsprcomp(,ndim,k=rep(sample(minNumLoads:maxNumLoads,1),ndim))
-  loads = sp$loadings
-  nl = numLoads(loads)
-  overlaps = nl %*% t(nl)
-  print(rbinom(1,1,.5))
-  return(overlaps)
-}
+para <- c(1750,1550)
 
 
 getNumloads = function(dat,indices,...) {
-  pca = arrayspc(dat[indices,], K=ndim, para,
-               use.corr=FALSE, max.iter=100,trace=FALSE,eps=1e-3)
+  pca = arrayspc(dat[indices,], K=2, para, use.corr=FALSE, max.iter=100,trace=FALSE,eps=1e-3)
   #pca = nsprcomp(,ndim,k=rep(sample(minNumLoads:maxNumLoads,1),ndim))
-  loads = sp$loadings
+  loads = pca$loadings
+  p = B2P(loads)
+  unp = diag(dim(p)[1]) - p
+  datMinusOnePca = as.matrix(dat[indices,]) %*% unp
+  pca2 = arrayspc(datMinusOnePca, K=1, para[2],
+               use.corr=FALSE, max.iter=100,trace=FALSE,eps=1e-2)
+  #loads = cbind(loads,pca2$loadings)
   nl = numLoads(loads)
   print(rbinom(1,1,.5))
   return(t(nl))
 }
 
-r = 50 #how many bootstrap samples. They take a few seconds each.
+r = 150 #how many bootstrap samples. They take a few seconds each.
 #elasticboot = boot(adwithin, getOverlap, R=r) #Do the bootstrap. Get some coffee.
 #overlapMeans = matrix(colMeans(elasticboot$t),dim(allsets)[1],dim(allsets)[1]) #now average the results across bootstrap samples, and put them back from vector into matrix form.
 
-elasticboot = boot(adwithin, getNumloads, R=r) #Do the bootstrap. Get some coffee.
-loadsMatrix = t(matrix(t(aboot$t),r * ndim, dim(allsets)[1]))#put the results back into the correct matrix form - one row per PC, not one row per bootstrap
+elasticboot2 = boot(adwithin, getNumloads, R=r) #Do the bootstrap. Get some coffee.
+loadsMatrix = t(matrix(t(elasticboot$t),r * ndim, dim(allsets)[1]))#put the results back into the correct matrix form - one row per PC, not one row per bootstrap
 observedSetCors = cor(t(loadsMatrix))
 observedSetCors[is.na(observedSetCors)] = 0
 
 
 
-#find how many loads on average are in the drugs versus the genes
-meanNumDrugLoads = sum(overlapMeans[d_inds,d_inds] * diag(length(d_inds))) / 4
-meanNumGeneLoads = mean(c(minNumLoads,maxNumLoads))-meanNumDrugLoads
 
 
 ImUsingOverlaps = F
 if (ImUsingOverlaps) {
+  
+#find how many loads on average are in the drugs versus the genes
+#meanNumDrugLoads = sum(overlapMeans[d_inds,d_inds] * diag(length(d_inds))) / 4
+#meanNumGeneLoads = mean(c(minNumLoads,maxNumLoads))-meanNumDrugLoads
                   rawOverlapMeans = overlapMeans #unexplainedOverlap is missing drugs, so we're going to put that info into overlapMeans. But first, make a backup copy.
                   
                   #gene-gene
@@ -276,23 +275,27 @@ if (ImUsingOverlaps) {
   dclust = hclust(ddist, method = "average")
   gdist = dist(observedSetCors[g_inds,], method="euclidean")
   gclust = hclust(gdist, method = "average")
-  allclust = c(gclust$order,dclust$order)
+  allclust = c(gclust$order,rep(1,100),dclust$order)
   sortedCors = observedSetCors[allclust,allclust]
   
   #graph using pheatmap. SLOW!
   #pheatmap(rescaled[allclust,allclust])
   
   #graph using ggplot.
-#   corss = melt(sortedCors ^ 0.2)
-#   setnames(corss,c("i","j","value"))
-#   ggplot(corss, aes(i,j,fill=value)) + geom_raster()
+  usegg = T
+  if (usegg) {
+   corss = melt(sqrt(sortedCors))
+   setnames(corss,c("i","j","value"))
+   ggplot(corss, aes(i,j,fill=value)) + geom_raster()
 
-  colors=seq(-0.4,1,length=300)
-  my_palette <- colorRampPalette(c("blue","#66ccff","white","#ff9982","red"))(n = 299)
-  #my_palette <- colorRampPalette(c("blue","white","red"))(n = 299)
-  heatmap.2(sortedCors,breaks=colors,
-            col=my_palette, scale="none",key=TRUE, symkey=FALSE, density.info="none", trace="none",
-            cexCol=0.12,cexRow=0.18)
+  } else {
+    colors=seq(-0.4,1,length=300)
+    my_palette <- colorRampPalette(c("blue","#66ccff","white","#ff9982","red"))(n = 299)
+    #my_palette <- colorRampPalette(c("blue","white","red"))(n = 299)
+    heatmap.2(sortedCors,breaks=colors,
+              col=my_palette, scale="none",key=TRUE, symkey=FALSE, density.info="none", trace="none",
+              cexCol=0.12,cexRow=0.18)
+    }
   
   
   
